@@ -1,0 +1,83 @@
+apply plugin: 'com.android.application'
+
+android {
+    namespace = "com.emd.app"
+    compileSdk = rootProject.ext.compileSdkVersion
+    defaultConfig {
+        applicationId "com.emd.app"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode 1
+        versionName "1.0"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    // APK 输出统一命名为 e-md.apk（debug 与 release 分别在各自输出目录，不会互相覆盖）
+    applicationVariants.all { variant ->
+        variant.outputs.all { output ->
+            outputFileName = "e-md.apk"
+        }
+    }
+}
+
+// AGP 会把文件名中的 '-' 规范化为 '_'（得到 e_md.apk），
+// 这里在 assemble 完成后复制一份为 e-md.apk，保证最终产物名符合预期。
+android.applicationVariants.all { variant ->
+    def buildType = variant.buildType.name
+    def renameTask = tasks.register("rename${buildType.capitalize()}Apk", Copy) {
+        from("$buildDir/outputs/apk/${buildType}/e_md.apk")
+        into("$buildDir/outputs/apk/${buildType}")
+        rename { 'e-md.apk' }
+    }
+    tasks.matching { it.name == "assemble${buildType.capitalize()}" }.configureEach {
+        finalizedBy renameTask
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+// Android Studio 同步时需要一个 IDE 内部任务 prepareKotlinBuildScriptModel，
+// 本工程未应用 Kotlin 插件（纯 Groovy 脚本），该任务不存在导致 IDE 同步报
+// "Task 'prepareKotlinBuildScriptModel' not found in project ':app'"。
+// 添加同名空任务作为 workaround，仅用于 IDE 同步，不影响实际构建。
+task prepareKotlinBuildScriptModel() {
+    // 空任务：无实际逻辑
+}
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}
